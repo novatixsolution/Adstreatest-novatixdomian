@@ -604,59 +604,71 @@
 
         // === GitHub API Functions ===
         async function getFile(path, token) {
-            var res = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME + '/contents/' + path + '?ref=' + BRANCH + '&t=' + Date.now(), {
-                headers: {
-                    'Authorization': 'token ' + token,
-                    'Cache-Control': 'no-cache'
+            try {
+                var res = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME + '/contents/' + path + '?ref=' + BRANCH, {
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Accept': 'application/vnd.github.v3+json'
+                    }
+                });
+                if (!res.ok) {
+                    var errData = await res.json();
+                    throw new Error('GitHub: ' + (errData.message || res.status));
                 }
-            });
-            if (!res.ok) throw new Error('File nahi mili: ' + path);
-            return await res.json();
+                return await res.json();
+            } catch (e) {
+                if (e.message.includes('GitHub:')) throw e;
+                throw new Error('Network error - check internet connection');
+            }
         }
 
         async function updateFile(path, content, sha, message, token) {
-            var res = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME + '/contents/' + path, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': 'token ' + token,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
+            try {
+                var body = {
                     message: message,
                     content: btoa(unescape(encodeURIComponent(content))),
                     sha: sha,
                     branch: BRANCH
-                })
-            });
-
-            // If SHA mismatch (409), retry with fresh SHA
-            if (res.status === 409 || res.status === 422) {
-                var freshFile = await getFile(path, token);
-                var retryRes = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME + '/contents/' + path, {
+                };
+                var res = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME + '/contents/' + path, {
                     method: 'PUT',
                     headers: {
-                        'Authorization': 'token ' + token,
+                        'Authorization': 'Bearer ' + token,
+                        'Accept': 'application/vnd.github.v3+json',
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({
-                        message: message,
-                        content: btoa(unescape(encodeURIComponent(content))),
-                        sha: freshFile.sha,
-                        branch: BRANCH
-                    })
+                    body: JSON.stringify(body)
                 });
-                if (!retryRes.ok) {
-                    var err = await retryRes.json();
-                    throw new Error(err.message || 'Update failed after retry');
-                }
-                return await retryRes.json();
-            }
 
-            if (!res.ok) {
-                var err = await res.json();
-                throw new Error(err.message || 'Update failed');
+                // If SHA mismatch, retry with fresh SHA
+                if (res.status === 409 || res.status === 422) {
+                    var freshFile = await getFile(path, token);
+                    body.sha = freshFile.sha;
+                    var retryRes = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME + '/contents/' + path, {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': 'Bearer ' + token,
+                            'Accept': 'application/vnd.github.v3+json',
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(body)
+                    });
+                    if (!retryRes.ok) {
+                        var err = await retryRes.json();
+                        throw new Error('GitHub: ' + (err.message || 'Update failed'));
+                    }
+                    return await retryRes.json();
+                }
+
+                if (!res.ok) {
+                    var err = await res.json();
+                    throw new Error('GitHub: ' + (err.message || 'Update failed'));
+                }
+                return await res.json();
+            } catch (e) {
+                if (e.message.includes('GitHub:')) throw e;
+                throw new Error('Network error - check internet connection');
             }
-            return await res.json();
         }
 
         function delay(ms) {
