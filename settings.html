@@ -574,32 +574,82 @@
             el.style.display = 'block';
         }
 
-        // === Load saved token and settings from localStorage ===
-        function loadSettings() {
-
-            var saved = localStorage.getItem('siteSettings');
-            if (!saved) return;
-
+        // === Load LIVE settings from GitHub ===
+        async function loadSettings() {
             try {
-                var s = JSON.parse(saved);
-                if (s.redirectEnabled) {
+                // Show loading state
+                document.getElementById('saveBtn').innerHTML = '<span class="spinner"></span> Loading live data...';
+                document.getElementById('saveBtn').disabled = true;
+
+                var token = GITHUB_TOKEN;
+
+                // 1. Load redirect.js from GitHub
+                var redirectFile = await getFile('redirect.js', token);
+                var redirectFileText = decodeURIComponent(escape(atob(redirectFile.content.replace(/\n/g, ''))));
+
+                // Parse redirect URL from file
+                var urlMatch = redirectFileText.match(/var redirectURL\s*=\s*"([^"]*)"/);
+                if (urlMatch && urlMatch[1] && urlMatch[1].trim() !== '') {
                     redirectToggle.checked = true;
-                    redirectContent.classList.add('open');
+                    redirectUrl.value = urlMatch[1];
+                    document.getElementById('redirectContent').classList.add('open');
                     redirectStatusLabel.textContent = 'ON';
                     redirectStatusLabel.style.color = '#00f0ff';
                 }
-                if (s.redirectUrl) redirectUrl.value = s.redirectUrl;
-                if (s.seoTitle) seoTitleEl.value = s.seoTitle;
-                if (s.seoDescription) seoDescEl.value = s.seoDescription;
-                if (s.imageEnabled) {
+
+                // 2. Load index.html from GitHub
+                var htmlFile = await getFile('index.html', token);
+                var htmlContent = decodeURIComponent(escape(atob(htmlFile.content.replace(/\n/g, ''))));
+
+                // Parse SEO title
+                var titleMatch = htmlContent.match(/<meta\s+property="og:title"\s+content="([^"]*)"/);
+                if (titleMatch && titleMatch[1]) seoTitleEl.value = titleMatch[1];
+
+                // Parse SEO description
+                var descMatch = htmlContent.match(/<meta\s+property="og:description"\s+content="([^"]*)"/);
+                if (descMatch && descMatch[1]) seoDescEl.value = descMatch[1];
+
+                // Parse OG image
+                var imgMatch = htmlContent.match(/<meta\s+property="og:image"\s+content="([^"]*)"/);
+                if (imgMatch && imgMatch[1] && imgMatch[1].trim() !== '') {
+                    seoImageEl.value = imgMatch[1];
                     imageToggle.checked = true;
-                    imageContent.classList.add('open');
+                    document.getElementById('imageContent').classList.add('open');
                     imageStatusLabel.textContent = 'ON';
                     imageStatusLabel.style.color = '#00f0ff';
                 }
-                if (s.seoImage) seoImageEl.value = s.seoImage;
+
                 updatePreview();
-            } catch (e) { }
+
+            } catch (e) {
+                console.log('Could not load live settings:', e.message);
+                // Fallback to localStorage
+                var saved = localStorage.getItem('siteSettings');
+                if (!saved) return;
+                try {
+                    var s = JSON.parse(saved);
+                    if (s.redirectEnabled) {
+                        redirectToggle.checked = true;
+                        document.getElementById('redirectContent').classList.add('open');
+                        redirectStatusLabel.textContent = 'ON';
+                        redirectStatusLabel.style.color = '#00f0ff';
+                    }
+                    if (s.redirectUrl) redirectUrl.value = s.redirectUrl;
+                    if (s.seoTitle) seoTitleEl.value = s.seoTitle;
+                    if (s.seoDescription) seoDescEl.value = s.seoDescription;
+                    if (s.imageEnabled) {
+                        imageToggle.checked = true;
+                        document.getElementById('imageContent').classList.add('open');
+                        imageStatusLabel.textContent = 'ON';
+                        imageStatusLabel.style.color = '#00f0ff';
+                    }
+                    if (s.seoImage) seoImageEl.value = s.seoImage;
+                    updatePreview();
+                } catch (e2) { }
+            } finally {
+                document.getElementById('saveBtn').innerHTML = '🚀 Save & Deploy';
+                document.getElementById('saveBtn').disabled = false;
+            }
         }
 
         // === GitHub API Functions ===
