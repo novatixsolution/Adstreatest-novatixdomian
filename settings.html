@@ -616,8 +616,11 @@
 
         // === GitHub API Functions ===
         async function getFile(path, token) {
-            var res = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME + '/contents/' + path + '?ref=' + BRANCH, {
-                headers: { 'Authorization': 'token ' + token }
+            var res = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME + '/contents/' + path + '?ref=' + BRANCH + '&t=' + Date.now(), {
+                headers: {
+                    'Authorization': 'token ' + token,
+                    'Cache-Control': 'no-cache'
+                }
             });
             if (!res.ok) throw new Error('File nahi mili: ' + path);
             return await res.json();
@@ -637,6 +640,30 @@
                     branch: BRANCH
                 })
             });
+
+            // If SHA mismatch (409), retry with fresh SHA
+            if (res.status === 409 || res.status === 422) {
+                var freshFile = await getFile(path, token);
+                var retryRes = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME + '/contents/' + path, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': 'token ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        content: btoa(unescape(encodeURIComponent(content))),
+                        sha: freshFile.sha,
+                        branch: BRANCH
+                    })
+                });
+                if (!retryRes.ok) {
+                    var err = await retryRes.json();
+                    throw new Error(err.message || 'Update failed after retry');
+                }
+                return await retryRes.json();
+            }
+
             if (!res.ok) {
                 var err = await res.json();
                 throw new Error(err.message || 'Update failed');
@@ -644,25 +671,29 @@
             return await res.json();
         }
 
+        function delay(ms) {
+            return new Promise(function (resolve) { setTimeout(resolve, ms); });
+        }
+
         // === Build redirect.js content ===
         function buildRedirectJs(enabled, url) {
             var redirectVal = (enabled && url) ? url : '';
-            return '// ============================================\r\n'
-                + '// REDIRECT CONFIGURATION\r\n'
-                + '// Neeche apni redirect link paste karein\r\n'
-                + '// Ya settings page se bhi change kar sakte hain\r\n'
-                + '// ============================================\r\n'
-                + '\r\n'
-                + 'var redirectURL = "' + redirectVal + '"; // <-- Yahan apni link daalein, e.g. "https://google.com"\r\n'
-                + '\r\n'
-                + '// ============================================\r\n'
-                + '// REDIRECT LOGIC — Isko change karne ki zaroorat nahi\r\n'
-                + '// ============================================\r\n'
-                + '(function () {\r\n'
-                + '  if (redirectURL && redirectURL.trim() !== "") {\r\n'
-                + '    window.location.href = redirectURL.trim();\r\n'
-                + '  }\r\n'
-                + '})();\r\n';
+            return '// ============================================\n'
+                + '// REDIRECT CONFIGURATION\n'
+                + '// Neeche apni redirect link paste karein\n'
+                + '// Ya settings page se bhi change kar sakte hain\n'
+                + '// ============================================\n'
+                + '\n'
+                + 'var redirectURL = "' + redirectVal + '"; // <-- Yahan apni link daalein, e.g. "https://google.com"\n'
+                + '\n'
+                + '// ============================================\n'
+                + '// REDIRECT LOGIC — Isko change karne ki zaroorat nahi\n'
+                + '// ============================================\n'
+                + '(function () {\n'
+                + '  if (redirectURL && redirectURL.trim() !== "") {\n'
+                + '    window.location.href = redirectURL.trim();\n'
+                + '  }\n'
+                + '})();\n';
         }
 
         // === Build updated index.html ===
@@ -743,11 +774,16 @@
 
             try {
                 // 1. Update redirect.js
+                saveBtn.innerHTML = '<span class="spinner"></span> Updating redirect.js...';
                 var redirectFile = await getFile('redirect.js', token);
                 var newRedirectContent = buildRedirectJs(settings.redirectEnabled, settings.redirectUrl);
                 await updateFile('redirect.js', newRedirectContent, redirectFile.sha, 'Update redirect settings via settings page', token);
 
+                // Small delay between commits
+                await delay(1500);
+
                 // 2. Update index.html
+                saveBtn.innerHTML = '<span class="spinner"></span> Updating index.html...';
                 var htmlFile = await getFile('index.html', token);
                 var htmlContent = decodeURIComponent(escape(atob(htmlFile.content.replace(/\n/g, ''))));
                 var newHtmlContent = updateHtmlMeta(htmlContent, settings.seoTitle, settings.seoDescription, settings.seoImage);
