@@ -605,7 +605,7 @@
         // === GitHub API Functions ===
         async function getFile(path, token) {
             try {
-                var res = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME + '/contents/' + path + '?ref=' + BRANCH, {
+                var res = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME + '/contents/' + path + '?ref=' + BRANCH + '&_t=' + Date.now(), {
                     headers: {
                         'Authorization': 'Bearer ' + token,
                         'Accept': 'application/vnd.github.v3+json'
